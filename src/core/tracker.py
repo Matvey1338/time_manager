@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime
-from typing import Optional, Callable
+from typing import Optional
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
 from models.session import Session, SessionStatus
@@ -14,10 +14,11 @@ class TimeTracker(QObject):
 
     # Сигналы
     time_updated = pyqtSignal(int)  # общее время в секундах
-    session_started = pyqtSignal(Session)
+    session_started = pyqtSignal(object)  # Session
     session_paused = pyqtSignal()
     session_resumed = pyqtSignal()
-    session_stopped = pyqtSignal(Session)
+    session_stopped = pyqtSignal(object)  # Session
+    state_changed = pyqtSignal()  # Сигнал изменения состояния
 
     def __init__(self, db_manager: DatabaseManager, parent=None):
         super().__init__(parent)
@@ -55,7 +56,13 @@ class TimeTracker(QObject):
     def is_paused(self) -> bool:
         """На паузе ли трекер."""
         return (self._current_session is not None and
-                self._current_session.is_paused)
+                self._current_session.is_paused and
+                not self._is_running)
+
+    @property
+    def has_active_session(self) -> bool:
+        """Есть ли активная сессия (работает или на паузе)."""
+        return self._current_session is not None
 
     def _restore_session(self) -> None:
         """Восстановить активную сессию из БД."""
@@ -69,57 +76,71 @@ class TimeTracker(QObject):
                 self._timer.start()
 
             self._logger.info(f"Восстановлена сессия: {session.id}")
+            self.state_changed.emit()
 
     def start(self) -> None:
         """Начать новую сессию или продолжить текущую."""
+        if self._is_running:
+            return  # Уже работает
+
         if self._current_session is None:
             # Создаем новую сессию
             self._current_session = Session()
             self._elapsed_seconds = 0
             self._db.save_session(self._current_session)
-            self.session_started.emit(self._current_session)
             self._logger.info(f"Начата новая сессия: {self._current_session.id}")
+            self.session_started.emit(self._current_session)
         elif self._current_session.is_paused:
             # Возобновляем сессию
             self._current_session.resume()
             self._db.save_session(self._current_session)
-            self.session_resumed.emit()
             self._logger.info("Сессия возобновлена")
+            self.session_resumed.emit()
 
         self._is_running = True
         self._timer.start()
+        self.state_changed.emit()
 
     def pause(self) -> None:
         """Поставить на паузу."""
-        if self._current_session and self._is_running:
-            self._is_running = False
-            self._timer.stop()
+        if not self._is_running or self._current_session is None:
+            return  # Нечего ставить на паузу
 
-            self._current_session.pause()
-            self._current_session.breaks_count += 1
-            self._db.save_session(self._current_session)
+        self._is_running = False
+        self._timer.stop()
 
-            self.session_paused.emit()
-            self._logger.info("Сессия приостановлена")
+        self._current_session.pause()
+        self._current_session.breaks_count += 1
+        self._db.save_session(self._current_session)
+
+        self._logger.info("Сессия приостановлена")
+        self.session_paused.emit()
+        self.state_changed.emit()
 
     def stop(self) -> None:
         """Остановить и завершить сессию."""
-        if self._current_session:
-            self._is_running = False
-            self._timer.stop()
+        if self._current_session is None:
+            return  # Нет активной сессии
 
-            self._current_session.complete()
-            self._db.save_session(self._current_session)
+        self._is_running = False
+        self._timer.stop()
 
-            completed_session = self._current_session
-            self._current_session = None
-            self._elapsed_seconds = 0
+        self._current_session.complete()
+        self._db.save_session(self._current_session)
 
-            self.session_stopped.emit(completed_session)
-            self._logger.info(f"Сессия завершена: {completed_session.id}")
+        completed_session = self._current_session
+        self._current_session = None
+        self._elapsed_seconds = 0
+
+        self._logger.info(f"Сессия завершена: {completed_session.id}")
+        self.session_stopped.emit(completed_session)
+        self.state_changed.emit()
 
     def _on_tick(self) -> None:
         """Обработчик тика таймера (каждую секунду)."""
+        if not self._is_running:
+            return
+
         self._elapsed_seconds += 1
 
         if self._current_session:
@@ -136,5 +157,5 @@ class TimeTracker(QObject):
         """Получить общее время за сегодня."""
         from datetime import date
         stats = self._db.get_daily_stats(date.today())
-        return stats["total_time"]
-    
+        current = self._elapsed_seconds if self._current_session else 0
+        return stats["total_time"] + current
