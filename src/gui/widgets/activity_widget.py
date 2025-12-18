@@ -4,7 +4,7 @@ from datetime import date
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QTableWidget, QTableWidgetItem, QHeaderView,
-    QProgressBar, QFrame
+    QProgressBar, QFrame, QSizePolicy
 )
 from PyQt6.QtCore import Qt
 
@@ -24,6 +24,7 @@ class ActivityWidget(QWidget):
     def _setup_ui(self) -> None:
         """Настройка интерфейса."""
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(15, 15, 15, 15)
         layout.setSpacing(20)
 
         # Заголовок
@@ -43,28 +44,32 @@ class ActivityWidget(QWidget):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
         header.resizeSection(1, 120)
-        header.resizeSection(2, 200)
+        header.resizeSection(2, 180)
 
         self._apps_table.setAlternatingRowColors(True)
-        self._apps_table.setSelectionBehavior(
-            QTableWidget.SelectionBehavior.SelectRows
-        )
+        self._apps_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._apps_table.verticalHeader().setVisible(False)
+        self._apps_table.setMinimumHeight(300)
 
         layout.addWidget(self._apps_table, 1)
 
         # Сводка
         summary_frame = QFrame()
         summary_frame.setObjectName("card")
-        summary_layout = QHBoxLayout(summary_frame)
+        summary_frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        summary_frame.setMinimumHeight(50)
 
-        self._total_apps_label = QLabel("Всего приложений: 0")
+        summary_layout = QHBoxLayout(summary_frame)
+        summary_layout.setContentsMargins(20, 10, 20, 10)
+
+        self._total_apps_label = QLabel("📊 Всего приложений: 0")
+        self._total_apps_label.setStyleSheet("font-size: 14px; color: #333333;")
         summary_layout.addWidget(self._total_apps_label)
 
         summary_layout.addStretch()
 
-        self._productive_label = QLabel("Продуктивное время: 0%")
-        self._productive_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
+        self._productive_label = QLabel("⏱️ Общее время: 0ч 0мин")
+        self._productive_label.setStyleSheet("font-size: 14px; color: #4CAF50; font-weight: bold;")
         summary_layout.addWidget(self._productive_label)
 
         layout.addWidget(summary_frame)
@@ -76,6 +81,8 @@ class ActivityWidget(QWidget):
         app_stats = self._db.get_app_statistics(date.today())
 
         if not app_stats:
+            self._total_apps_label.setText("📊 Всего приложений: 0")
+            self._productive_label.setText("⏱️ Общее время: 0ч 0мин")
             return
 
         total_time = sum(app_stats.values())
@@ -83,8 +90,8 @@ class ActivityWidget(QWidget):
         # Сортировка по времени
         sorted_apps = sorted(
             app_stats.items(),
-            key = lambda x: x[1],
-            reverse = True
+            key=lambda x: x[1],
+            reverse=True
         )
 
         for app_name, duration in sorted_apps:
@@ -92,7 +99,7 @@ class ActivityWidget(QWidget):
             self._apps_table.insertRow(row)
 
             # Имя приложения
-            name_item = QTableWidgetItem(app_name)
+            name_item = QTableWidgetItem(f"  {app_name}")
             self._apps_table.setItem(row, 0, name_item)
 
             # Время
@@ -106,7 +113,22 @@ class ActivityWidget(QWidget):
             percentage = int((duration / total_time) * 100) if total_time > 0 else 0
             progress.setValue(percentage)
             progress.setFormat(f"{percentage}%")
+            progress.setStyleSheet("""
+                QProgressBar {
+                    border: none;
+                    border-radius: 5px;
+                    background-color: #E0E0E0;
+                    height: 18px;
+                    text-align: center;
+                    font-weight: bold;
+                    color: #333333;
+                }
+                QProgressBar::chunk {
+                    background-color: #4CAF50;
+                    border-radius: 5px;
+                }
+            """)
             self._apps_table.setCellWidget(row, 2, progress)
 
-        self._total_apps_label.setText(f"Всего приложений: {len(app_stats)}")
-        
+        self._total_apps_label.setText(f"📊 Всего приложений: {len(app_stats)}")
+        self._productive_label.setText(f"⏱️ Общее время: {format_duration(total_time)}")

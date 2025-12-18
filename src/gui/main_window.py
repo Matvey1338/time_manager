@@ -47,8 +47,8 @@ class MainWindow(QMainWindow):
     def _setup_ui(self) -> None:
         """Настройка интерфейса."""
         self.setWindowTitle("Work Chronometer - Хронометраж работы")
-        self.setMinimumSize(900, 650)
-        self.resize(1000, 700)
+        self.setMinimumSize(700, 550)  # Минимальный размер окна
+        self.resize(950, 700)
 
         # Применение стилей
         self.setStyleSheet(MAIN_STYLESHEET)
@@ -58,8 +58,8 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
 
         main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(20, 20, 20, 20)
-        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(15)
 
         # Виджет таймера (всегда виден сверху)
         self._timer_widget = TimerWidget(self._tracker)
@@ -86,50 +86,41 @@ class MainWindow(QMainWindow):
         """Настройка иконки в системном трее."""
         self._tray_icon = QSystemTrayIcon(self)
 
-        # Создаем простую иконку (в реальном проекте нужен файл иконки)
-        # self._tray_icon.setIcon(QIcon("resources/icon.png"))
-
         # Меню трея
         tray_menu = QMenu()
 
-        show_action = QAction("Показать", self)
+        show_action = QAction("📱 Показать", self)
         show_action.triggered.connect(self.show)
         tray_menu.addAction(show_action)
 
         tray_menu.addSeparator()
 
-        start_action = QAction("Старт", self)
+        start_action = QAction("▶ Старт", self)
         start_action.triggered.connect(self._tracker.start)
         tray_menu.addAction(start_action)
 
-        pause_action = QAction("Пауза", self)
+        pause_action = QAction("⏸ Пауза", self)
         pause_action.triggered.connect(self._tracker.pause)
         tray_menu.addAction(pause_action)
 
-        stop_action = QAction("Стоп", self)
+        stop_action = QAction("⏹ Стоп", self)
         stop_action.triggered.connect(self._tracker.stop)
         tray_menu.addAction(stop_action)
 
         tray_menu.addSeparator()
 
-        quit_action = QAction("Выход", self)
+        quit_action = QAction("❌ Выход", self)
         quit_action.triggered.connect(self._quit_app)
         tray_menu.addAction(quit_action)
 
         self._tray_icon.setContextMenu(tray_menu)
         self._tray_icon.activated.connect(self._on_tray_activated)
-        # self._tray_icon.show()
 
     def _connect_signals(self) -> None:
         """Подключение сигналов."""
-        # Сигналы трекера
         self._tracker.session_started.connect(self._on_session_started)
         self._tracker.session_stopped.connect(self._on_session_stopped)
-
-        # Сигналы менеджера перерывов
         self._break_manager.break_reminder.connect(self._show_break_reminder)
-
-        # Обновление статистики при смене вкладки
         self._tab_widget.currentChanged.connect(self._on_tab_changed)
 
     def _on_session_started(self, session) -> None:
@@ -148,9 +139,9 @@ class MainWindow(QMainWindow):
 
     def _on_tab_changed(self, index: int) -> None:
         """Обработка смены вкладки."""
-        if index == 0:  # Статистика
+        if index == 0:
             self._stats_widget.refresh()
-        elif index == 1:  # Приложения
+        elif index == 1:
             self._activity_widget.refresh()
 
     def _show_break_reminder(self, break_type: str, duration: int) -> None:
@@ -159,10 +150,10 @@ class MainWindow(QMainWindow):
             return
 
         if break_type == "long":
-            title = "Время для длинного перерыва!"
-            message = f"Вы работали уже долго. Отдохните {duration} минут."
+            title = "☕ Время для длинного перерыва!"
+            message = f"Вы работали уже долго.\nОтдохните {duration} минут."
         else:
-            title = "Время для перерыва!"
+            title = "🍃 Время для перерыва!"
             message = f"Сделайте короткий перерыв на {duration} минут."
 
         QMessageBox.information(self, title, message)
@@ -188,7 +179,7 @@ class MainWindow(QMainWindow):
             reply = QMessageBox.question(
                 self,
                 "Подтверждение выхода",
-                "Сессия все еще активна. Завершить её перед выходом?",
+                "Сессия все еще активна.\nЗавершить её перед выходом?",
                 QMessageBox.StandardButton.Yes |
                 QMessageBox.StandardButton.No |
                 QMessageBox.StandardButton.Cancel
@@ -199,7 +190,6 @@ class MainWindow(QMainWindow):
             elif reply == QMessageBox.StandardButton.Cancel:
                 return
 
-        # self._tray_icon.hide()
         from PyQt6.QtWidgets import QApplication
         QApplication.quit()
 
@@ -208,13 +198,6 @@ class MainWindow(QMainWindow):
         if self._config.settings.start_minimized:
             event.ignore()
             self.hide()
-            # self._tray_icon.showMessage(
-            #     "Work Chronometer",
-            #     "Приложение свернуто в трей",
-            #     QSystemTrayIcon.MessageIcon.Information,
-            #     2000
-            # )
         else:
             self._quit_app()
             event.accept()
-            

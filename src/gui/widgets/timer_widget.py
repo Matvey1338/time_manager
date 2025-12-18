@@ -2,7 +2,7 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QFrame, QSizePolicy
+    QPushButton, QFrame, QSizePolicy, QSpacerItem
 )
 from PyQt6.QtCore import Qt
 
@@ -22,19 +22,23 @@ class TimerWidget(QWidget):
 
     def _setup_ui(self) -> None:
         """Настройка интерфейса."""
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        # Главный layout
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
         # Карточка таймера
         card = QFrame()
-        card.setObjectName("card")
-        card.setMinimumHeight(200)
+        card.setObjectName("timerCard")
+        card.setMinimumHeight(220)
+        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
         card_layout = QVBoxLayout(card)
-        card_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        card_layout.setSpacing(20)
+        card_layout.setContentsMargins(30, 25, 30, 25)
+        card_layout.setSpacing(15)
 
         # Статус
-        self._status_label = QLabel("Готов к работе")
+        self._status_label = QLabel("⏸ Готов к работе")
         self._status_label.setObjectName("statusLabel")
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         card_layout.addWidget(self._status_label)
@@ -43,41 +47,59 @@ class TimerWidget(QWidget):
         self._timer_label = QLabel("00:00:00")
         self._timer_label.setObjectName("timerLabel")
         self._timer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._timer_label.setMinimumHeight(80)
         card_layout.addWidget(self._timer_label)
 
         # Информация о сегодняшнем дне
-        self._today_label = QLabel("Сегодня: 0ч 0мин")
-        self._today_label.setObjectName("statusLabel")
+        self._today_label = QLabel("📅 Сегодня: 0ч 0мин")
+        self._today_label.setObjectName("todayLabel")
         self._today_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         card_layout.addWidget(self._today_label)
 
-        # Кнопки управления
-        buttons_layout = QHBoxLayout()
+        # Контейнер для кнопок (чтобы кнопки не растягивались)
+        buttons_container = QWidget()
+        buttons_layout = QHBoxLayout(buttons_container)
+        buttons_layout.setContentsMargins(0, 10, 0, 0)
         buttons_layout.setSpacing(15)
-        buttons_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self._start_btn = QPushButton("▶ Старт")
+        # Спейсер слева
+        buttons_layout.addSpacerItem(
+            QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        )
+
+        # Кнопка Старт
+        self._start_btn = QPushButton("▶  Старт")
         self._start_btn.setObjectName("startButton")
-        self._start_btn.setMinimumWidth(120)
+        self._start_btn.setFixedSize(130, 50)
+        self._start_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._start_btn.clicked.connect(self._on_start)
         buttons_layout.addWidget(self._start_btn)
 
-        self._pause_btn = QPushButton("⏸ Пауза")
+        # Кнопка Пауза
+        self._pause_btn = QPushButton("⏸  Пауза")
         self._pause_btn.setObjectName("pauseButton")
-        self._pause_btn.setMinimumWidth(120)
+        self._pause_btn.setFixedSize(130, 50)
+        self._pause_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._pause_btn.clicked.connect(self._on_pause)
         self._pause_btn.setEnabled(False)
         buttons_layout.addWidget(self._pause_btn)
 
-        self._stop_btn = QPushButton("⏹ Стоп")
+        # Кнопка Стоп
+        self._stop_btn = QPushButton("⏹  Стоп")
         self._stop_btn.setObjectName("stopButton")
-        self._stop_btn.setMinimumWidth(120)
+        self._stop_btn.setFixedSize(130, 50)
+        self._stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._stop_btn.clicked.connect(self._on_stop)
         self._stop_btn.setEnabled(False)
         buttons_layout.addWidget(self._stop_btn)
 
-        card_layout.addLayout(buttons_layout)
-        layout.addWidget(card)
+        # Спейсер справа
+        buttons_layout.addSpacerItem(
+            QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        )
+
+        card_layout.addWidget(buttons_container)
+        main_layout.addWidget(card)
 
     def _connect_signals(self) -> None:
         """Подключение сигналов."""
@@ -104,16 +126,16 @@ class TimerWidget(QWidget):
         self._stop_btn.setEnabled(has_session)
 
         if is_paused:
-            self._start_btn.setText("▶ Продолжить")
+            self._start_btn.setText("▶  Продолжить")
         else:
-            self._start_btn.setText("▶ Старт")
+            self._start_btn.setText("▶  Старт")
 
     def _update_today_label(self) -> None:
         """Обновить метку общего времени за сегодня."""
         total = self._tracker.get_today_total()
         hours, remainder = divmod(total, 3600)
         minutes = remainder // 60
-        self._today_label.setText(f"Сегодня: {hours}ч {minutes}мин")
+        self._today_label.setText(f"📅 Сегодня: {hours}ч {minutes}мин")
 
     def _on_start(self) -> None:
         """Обработка нажатия кнопки Старт."""
@@ -138,26 +160,25 @@ class TimerWidget(QWidget):
     def _on_session_started(self, session) -> None:
         """Сессия началась."""
         self._status_label.setText("🟢 Работа идёт...")
-        self._status_label.setStyleSheet("color: #4CAF50;")
+        self._status_label.setStyleSheet("color: #2E7D32; font-weight: bold;")
         self._update_buttons()
 
     def _on_session_paused(self) -> None:
         """Сессия на паузе."""
         self._status_label.setText("🟡 Пауза")
-        self._status_label.setStyleSheet("color: #FF9800;")
+        self._status_label.setStyleSheet("color: #F57C00; font-weight: bold;")
         self._update_buttons()
 
     def _on_session_resumed(self) -> None:
         """Сессия возобновлена."""
         self._status_label.setText("🟢 Работа идёт...")
-        self._status_label.setStyleSheet("color: #4CAF50;")
+        self._status_label.setStyleSheet("color: #2E7D32; font-weight: bold;")
         self._update_buttons()
 
     def _on_session_stopped(self, session) -> None:
         """Сессия завершена."""
-        self._status_label.setText("Готов к работе")
-        self._status_label.setStyleSheet("")
+        self._status_label.setText("⏸ Готов к работе")
+        self._status_label.setStyleSheet("color: #555555;")
         self._timer_label.setText("00:00:00")
         self._update_buttons()
         self._update_today_label()
-        
