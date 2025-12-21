@@ -24,7 +24,6 @@ from .widgets.settings_widget import SettingsWidget
 
 def create_tray_icon() -> QIcon:
     """Создать иконку для системного трея."""
-    # Создаем pixmap 64x64
     pixmap = QPixmap(64, 64)
     pixmap.fill(Qt.GlobalColor.transparent)
 
@@ -59,14 +58,14 @@ class MainWindow(QMainWindow):
 
         # Инициализация компонентов ядра
         self._tracker = TimeTracker(db_manager)
-        self._activity_monitor = ActivityMonitor(db_manager)
+        self._activity_monitor = ActivityMonitor(db_manager, config)
         self._break_manager = BreakManager(config)
 
         self._setup_ui()
         self._setup_tray()
         self._connect_signals()
 
-        # Автозапуск отслеживания
+        # Автозапуск только если включено в настройках
         if config.settings.auto_start_tracking:
             self._tracker.start()
 
@@ -76,13 +75,9 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(600, 480)
         self.resize(850, 620)
 
-        # Устанавливаем иконку окна
         self.setWindowIcon(create_tray_icon())
-
-        # Применение стилей
         self.setStyleSheet(MAIN_STYLESHEET)
 
-        # Центральный виджет
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
@@ -100,8 +95,8 @@ class MainWindow(QMainWindow):
         self._stats_widget = StatsWidget(self._db)
         self._tab_widget.addTab(self._stats_widget, "Статистика")
 
-        self._activity_widget = ActivityWidget(self._db)
-        self._tab_widget.addTab(self._activity_widget, "Приложения")
+        self._activity_widget = ActivityWidget(self._db, self._config)
+        self._tab_widget.addTab(self._activity_widget, "Продуктивность")
 
         self._settings_widget = SettingsWidget(self._config)
         self._tab_widget.addTab(self._settings_widget, "Настройки")
@@ -114,7 +109,6 @@ class MainWindow(QMainWindow):
         self._tray_icon.setIcon(create_tray_icon())
         self._tray_icon.setToolTip("Work Chronometer")
 
-        # Меню трея
         tray_menu = QMenu()
 
         show_action = QAction("Показать", self)
@@ -143,8 +137,6 @@ class MainWindow(QMainWindow):
 
         self._tray_icon.setContextMenu(tray_menu)
         self._tray_icon.activated.connect(self._on_tray_activated)
-
-        # Показываем иконку в трее
         self._tray_icon.show()
 
     def _show_window(self) -> None:
@@ -158,8 +150,15 @@ class MainWindow(QMainWindow):
         """Подключение сигналов."""
         self._tracker.session_started.connect(self._on_session_started)
         self._tracker.session_stopped.connect(self._on_session_stopped)
+        self._tracker.session_paused.connect(self._on_session_paused)
         self._tracker.state_changed.connect(self._update_tray_tooltip)
+
         self._break_manager.break_reminder.connect(self._show_break_reminder)
+
+        # Сигналы мониторинга простоя
+        self._activity_monitor.idle_detected.connect(self._on_idle_detected)
+        self._activity_monitor.user_returned.connect(self._on_user_returned)
+
         self._tab_widget.currentChanged.connect(self._on_tab_changed)
 
     def _update_tray_tooltip(self) -> None:
@@ -182,6 +181,12 @@ class MainWindow(QMainWindow):
         self._update_title()
         self._update_tray_tooltip()
 
+    def _on_session_paused(self) -> None:
+        """Сессия на паузе."""
+        self._break_manager.pause()
+        self._update_title()
+        self._update_tray_tooltip()
+
     def _on_session_stopped(self, session) -> None:
         """Обработка окончания сессии."""
         self._activity_monitor.stop_monitoring()
@@ -190,6 +195,32 @@ class MainWindow(QMainWindow):
         self._activity_widget.refresh()
         self._update_title()
         self._update_tray_tooltip()
+
+    def _on_idle_detected(self, idle_seconds: int) -> None:
+        """Обнаружен простой - автопауза."""
+        if self._tracker.is_running:
+            self._tracker.pause()
+
+            if self._config.settings.notifications_enabled:
+                minutes = idle_seconds // 60
+                self._tray_icon.showMessage(
+                    "Автопауза",
+                    f"Вы не активны уже {minutes} мин.\nТаймер поставлен на паузу.",
+                    QSystemTrayIcon.MessageIcon.Information,
+                    3000
+                )
+
+    def _on_user_returned(self) -> None:
+        """Пользователь вернулся после простоя."""
+        if self._tracker.is_paused:
+            # Можно автоматически продолжить или показать уведомление
+            if self._config.settings.notifications_enabled:
+                self._tray_icon.showMessage(
+                    "С возвращением!",
+                    "Нажмите 'Продолжить' чтобы возобновить таймер.",
+                    QSystemTrayIcon.MessageIcon.Information,
+                    3000
+                )
 
     def _on_tab_changed(self, index: int) -> None:
         """Обработка смены вкладки."""
@@ -210,21 +241,22 @@ class MainWindow(QMainWindow):
             title = "Время для перерыва"
             message = f"Сделайте короткий перерыв на {duration} минут."
 
-        # Показываем уведомление в трее
-        self._tray_icon.showMessage(title, message, QSystemTrayIcon.MessageIcon.Information, 5000)
+        self._tray_icon.showMessage(
+            title, message,
+            QSystemTrayIcon.MessageIcon.Information,
+            5000
+        )
 
     def _on_tray_activated(self, reason) -> None:
         """Обработка клика по иконке в трее."""
-        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
-            self._show_window()
-        elif reason == QSystemTrayIcon.ActivationReason.Trigger:
-            # Одиночный клик - показать окно
+        if reason in (QSystemTrayIcon.ActivationReason.DoubleClick,
+                      QSystemTrayIcon.ActivationReason.Trigger):
             self._show_window()
 
     def _update_title(self) -> None:
         """Обновить заголовок окна."""
         if self._tracker.is_running:
-            self.setWindowTitle("�� Work Chronometer - Работа")
+            self.setWindowTitle("▶ Work Chronometer - Работа")
         elif self._tracker.is_paused:
             self.setWindowTitle("⏸ Work Chronometer - Пауза")
         else:
@@ -252,7 +284,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Обработка закрытия окна."""
-        if self._config.settings.start_minimized:
+        if self._config.settings.minimize_to_tray:
             event.ignore()
             self.hide()
             self._tray_icon.showMessage(

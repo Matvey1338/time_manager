@@ -88,6 +88,24 @@ QFrame#card, QFrame#statCard {
     border-radius: 8px;
 }
 
+QFrame#productiveCard {
+    background-color: #DCFCE7;
+    border: 1px solid #86EFAC;
+    border-radius: 8px;
+}
+
+QFrame#distractingCard {
+    background-color: #FEE2E2;
+    border: 1px solid #FCA5A5;
+    border-radius: 8px;
+}
+
+QFrame#neutralCard {
+    background-color: #F3F4F6;
+    border: 1px solid #D1D5DB;
+    border-radius: 8px;
+}
+
 /* === МЕТКИ === */
 QLabel {
     color: #1C1C1C;
@@ -129,6 +147,16 @@ QLabel#cardValue {
     color: #111827;
 }
 
+QLabel#productiveLabel {
+    color: #166534;
+    font-weight: bold;
+}
+
+QLabel#distractingLabel {
+    color: #991B1B;
+    font-weight: bold;
+}
+
 /* === ТАБЛИЦЫ === */
 QTableWidget {
     background-color: #FFFFFF;
@@ -138,18 +166,12 @@ QTableWidget {
     color: #1C1C1C;
     selection-background-color: #DBEAFE;
     selection-color: #1C1C1C;
-    alternate-background-color: #F9FAFB;
 }
 
 QTableWidget::item {
     padding: 8px;
     color: #1C1C1C;
     background-color: #FFFFFF;
-}
-
-QTableWidget::item:alternate {
-    background-color: #F9FAFB;
-    color: #1C1C1C;
 }
 
 QTableWidget::item:selected {
@@ -242,7 +264,7 @@ QLineEdit:focus {
     border-color: #3B82F6;
 }
 
-/* === SPINBOX === */
+/* === SPINBOX - используем системные стрелки === */
 QSpinBox {
     border: 1px solid #D1D5DB;
     border-radius: 4px;
@@ -250,54 +272,10 @@ QSpinBox {
     background-color: #FFFFFF;
     color: #1C1C1C;
     font-size: 13px;
-    padding-right: 20px;
 }
 
 QSpinBox:focus {
     border-color: #3B82F6;
-}
-
-QSpinBox::up-button {
-    subcontrol-origin: border;
-    subcontrol-position: top right;
-    width: 20px;
-    border-left: 1px solid #D1D5DB;
-    border-bottom: 1px solid #D1D5DB;
-    border-top-right-radius: 4px;
-    background-color: #F3F4F6;
-}
-
-QSpinBox::up-button:hover {
-    background-color: #E5E7EB;
-}
-
-QSpinBox::up-arrow {
-    width: 0;
-    height: 0;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-bottom: 5px solid #374151;
-}
-
-QSpinBox::down-button {
-    subcontrol-origin: border;
-    subcontrol-position: bottom right;
-    width: 20px;
-    border-left: 1px solid #D1D5DB;
-    border-bottom-right-radius: 4px;
-    background-color: #F3F4F6;
-}
-
-QSpinBox::down-button:hover {
-    background-color: #E5E7EB;
-}
-
-QSpinBox::down-arrow {
-    width: 0;
-    height: 0;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-top: 5px solid #374151;
 }
 
 /* === COMBOBOX === */
@@ -313,24 +291,6 @@ QComboBox {
 
 QComboBox:focus {
     border-color: #3B82F6;
-}
-
-QComboBox::drop-down {
-    subcontrol-origin: padding;
-    subcontrol-position: top right;
-    width: 24px;
-    border-left: 1px solid #D1D5DB;
-    border-top-right-radius: 4px;
-    border-bottom-right-radius: 4px;
-    background-color: #F3F4F6;
-}
-
-QComboBox::down-arrow {
-    width: 0;
-    height: 0;
-    border-left: 5px solid transparent;
-    border-right: 5px solid transparent;
-    border-top: 6px solid #374151;
 }
 
 QComboBox QAbstractItemView {
@@ -369,7 +329,6 @@ QCheckBox::indicator {
 QCheckBox::indicator:checked {
     background-color: #3B82F6;
     border-color: #3B82F6;
-    image: none;
 }
 
 QCheckBox::indicator:hover {
@@ -391,6 +350,18 @@ QProgressBar {
 QProgressBar::chunk {
     background-color: #22C55E;
     border-radius: 4px;
+}
+
+QProgressBar#productiveBar::chunk {
+    background-color: #22C55E;
+}
+
+QProgressBar#distractingBar::chunk {
+    background-color: #EF4444;
+}
+
+QProgressBar#neutralBar::chunk {
+    background-color: #6B7280;
 }
 
 /* === СКРОЛЛБАРЫ === */
@@ -462,5 +433,15 @@ QMessageBox {
 QMessageBox QLabel {
     color: #1C1C1C;
     font-size: 13px;
+}
+
+/* === TOOLTIP === */
+QToolTip {
+    background-color: #1F2937;
+    color: #FFFFFF;
+    border: none;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 12px;
 }
 """

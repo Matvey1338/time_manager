@@ -1,34 +1,43 @@
-"""Монитор активности приложений."""
+"""Монитор активности приложений и определение простоя."""
 
 import logging
 import sys
+import time
 from datetime import datetime
 from typing import Optional, Tuple
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
 from models.activity import Activity, ActivityType
 from database.db_manager import DatabaseManager
+from utils.config import Config
 
 
 class ActivityMonitor(QObject):
-    """Мониторинг активных приложений."""
+    """Мониторинг активных приложений и простоя пользователя."""
 
     # Сигналы
     activity_changed = pyqtSignal(str, str)  # app_name, window_title
     idle_detected = pyqtSignal(int)  # seconds of idle
+    user_returned = pyqtSignal()  # пользователь вернулся после простоя
 
-    def __init__(self, db_manager: DatabaseManager, parent=None):
+    def __init__(self, db_manager: DatabaseManager, config: Config = None, parent=None):
         super().__init__(parent)
         self._logger = logging.getLogger(__name__)
         self._db = db_manager
+        self._config = config
 
         self._current_activity: Optional[Activity] = None
         self._session_id: str = ""
         self._is_monitoring: bool = False
 
+        # Отслеживание простоя
+        self._last_input_time: float = time.time()
+        self._is_idle: bool = False
+        self._idle_seconds: int = 0
+
         # Таймер для проверки активного окна
         self._timer = QTimer(self)
-        self._timer.timeout.connect(self._check_active_window)
+        self._timer.timeout.connect(self._check_activity)
         self._timer.setInterval(2000)  # проверка каждые 2 секунды
 
         # Кэш последнего приложения
@@ -39,6 +48,9 @@ class ActivityMonitor(QObject):
         """Начать мониторинг."""
         self._session_id = session_id
         self._is_monitoring = True
+        self._last_input_time = time.time()
+        self._is_idle = False
+        self._idle_seconds = 0
         self._timer.start()
         self._logger.info("Мониторинг активности запущен")
 
@@ -49,12 +61,97 @@ class ActivityMonitor(QObject):
         self._finish_current_activity()
         self._logger.info("Мониторинг активности остановлен")
 
+    def _check_activity(self) -> None:
+        """Проверить активность пользователя."""
+        # Проверяем простой
+        self._check_idle()
+
+        # Проверяем активное окно
+        if not self._is_idle:
+            self._check_active_window()
+
+    def _check_idle(self) -> None:
+        """Проверить время простоя."""
+        idle_time = self._get_idle_time()
+
+        idle_timeout = 300  # по умолчанию 5 минут
+        idle_enabled = True
+
+        if self._config:
+            idle_timeout = self._config.settings.idle_timeout
+            idle_enabled = self._config.settings.idle_detection_enabled
+
+        if not idle_enabled:
+            return
+
+        if idle_time >= idle_timeout:
+            if not self._is_idle:
+                self._is_idle = True
+                self._idle_seconds = idle_time
+                self._logger.info(f"Обнаружен простой: {idle_time} сек")
+                self.idle_detected.emit(idle_time)
+        else:
+            if self._is_idle:
+                self._is_idle = False
+                self._logger.info("Пользователь вернулся")
+                self.user_returned.emit()
+
+    def _get_idle_time(self) -> int:
+        """Получить время простоя в секундах."""
+        if sys.platform == "win32":
+            try:
+                import ctypes
+
+                class LASTINPUTINFO(ctypes.Structure):
+                    _fields_ = [
+                        ('cbSize', ctypes.c_uint),
+                        ('dwTime', ctypes.c_uint),
+                    ]
+
+                lii = LASTINPUTINFO()
+                lii.cbSize = ctypes.sizeof(LASTINPUTINFO)
+
+                if ctypes.windll.user32.GetLastInputInfo(ctypes.byref(lii)):
+                    millis = ctypes.windll.kernel32.GetTickCount() - lii.dwTime
+                    return millis // 1000
+            except Exception as e:
+                self._logger.debug(f"Ошибка получения времени простоя: {e}")
+
+        elif sys.platform == "darwin":
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ["ioreg", "-c", "IOHIDSystem"],
+                    capture_output=True, text=True
+                )
+                # Парсинг вывода для получения HIDIdleTime
+                for line in result.stdout.split('\n'):
+                    if 'HIDIdleTime' in line:
+                        # Значение в наносекундах
+                        idle_ns = int(line.split('=')[1].strip())
+                        return idle_ns // 1_000_000_000
+            except Exception as e:
+                self._logger.debug(f"Ошибка получения времени простоя: {e}")
+
+        else:  # Linux
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ["xprintidle"],
+                    capture_output=True, text=True
+                )
+                return int(result.stdout.strip()) // 1000
+            except Exception:
+                pass
+
+        return 0
+
     def _check_active_window(self) -> None:
         """Проверить текущее активное окно."""
         try:
             app_name, window_title = self._get_active_window_info()
 
-            if app_name != self._last_app:
+            if app_name and app_name != self._last_app:
                 self._finish_current_activity()
                 self._start_new_activity(app_name, window_title)
 
@@ -67,55 +164,89 @@ class ActivityMonitor(QObject):
 
     def _get_active_window_info(self) -> Tuple[str, str]:
         """Получить информацию об активном окне."""
-        app_name = "Unknown"
+        app_name = ""
         window_title = ""
 
         if sys.platform == "win32":
             try:
-                import win32gui
-                import win32process
+                import ctypes
+                from ctypes import wintypes
+
+                user32 = ctypes.windll.user32
+
+                # Получаем handle активного окна
+                hwnd = user32.GetForegroundWindow()
+                if not hwnd:
+                    return "", ""
+
+                # Получаем заголовок окна
+                length = user32.GetWindowTextLengthW(hwnd) + 1
+                buffer = ctypes.create_unicode_buffer(length)
+                user32.GetWindowTextW(hwnd, buffer, length)
+                window_title = buffer.value
+
+                # Получаем PID процесса
+                pid = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+
+                # Получаем имя процесса
                 import psutil
+                try:
+                    process = psutil.Process(pid.value)
+                    app_name = process.name()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    app_name = "Unknown"
 
-                hwnd = win32gui.GetForegroundWindow()
-                window_title = win32gui.GetWindowText(hwnd)
-
-                _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                process = psutil.Process(pid)
-                app_name = process.name()
-            except ImportError:
-                # Если win32gui недоступен, используем заглушку
-                pass
-            except Exception:
-                pass
+            except Exception as e:
+                self._logger.debug(f"Windows API error: {e}")
 
         elif sys.platform == "darwin":
             try:
-                from AppKit import NSWorkspace
-                active_app = NSWorkspace.sharedWorkspace().activeApplication()
-                app_name = active_app.get("NSApplicationName", "Unknown")
-            except ImportError:
-                pass
+                import subprocess
+                script = '''
+                tell application "System Events"
+                    set frontApp to first application process whose frontmost is true
+                    set appName to name of frontApp
+                end tell
+                return appName
+                '''
+                result = subprocess.run(
+                    ["osascript", "-e", script],
+                    capture_output=True, text=True
+                )
+                app_name = result.stdout.strip()
             except Exception:
                 pass
 
         else:  # Linux
             try:
                 import subprocess
-                result = subprocess.run(
-                    ["xdotool", "getactivewindow", "getwindowname"],
-                    capture_output = True, text = True
-                )
-                window_title = result.stdout.strip()
 
+                # Получаем ID активного окна
                 result = subprocess.run(
-                    ["xdotool", "getactivewindow", "getwindowpid"],
-                    capture_output = True, text = True
+                    ["xdotool", "getactivewindow"],
+                    capture_output=True, text=True
                 )
-                pid = int(result.stdout.strip())
+                window_id = result.stdout.strip()
 
-                import psutil
-                process = psutil.Process(pid)
-                app_name = process.name()
+                if window_id:
+                    # Получаем заголовок
+                    result = subprocess.run(
+                        ["xdotool", "getwindowname", window_id],
+                        capture_output=True, text=True
+                    )
+                    window_title = result.stdout.strip()
+
+                    # Получаем PID
+                    result = subprocess.run(
+                        ["xdotool", "getwindowpid", window_id],
+                        capture_output=True, text=True
+                    )
+                    pid = int(result.stdout.strip())
+
+                    import psutil
+                    process = psutil.Process(pid)
+                    app_name = process.name()
             except Exception:
                 pass
 
@@ -123,11 +254,13 @@ class ActivityMonitor(QObject):
 
     def _start_new_activity(self, app_name: str, window_title: str) -> None:
         """Начать запись новой активности."""
+        activity_type = self._classify_activity(app_name)
+
         self._current_activity = Activity(
-            session_id = self._session_id,
-            application_name = app_name,
-            window_title = window_title,
-            activity_type = self._classify_activity(app_name)
+            session_id=self._session_id,
+            application_name=app_name,
+            window_title=window_title,
+            activity_type=activity_type
         )
         self._db.save_activity(self._current_activity)
 
@@ -142,19 +275,26 @@ class ActivityMonitor(QObject):
         """Классификация активности по имени приложения."""
         app_lower = app_name.lower()
 
-        productive_apps = {
-            "code", "pycharm", "webstorm", "idea", "visual studio",
-            "sublime", "atom", "vim", "nvim", "emacs",
-            "word", "excel", "powerpoint", "outlook",
-            "terminal", "cmd", "powershell", "iterm",
-            "figma", "photoshop", "illustrator"
-        }
+        # Получаем списки из конфига
+        productive_apps = []
+        distracting_apps = []
 
-        distracting_apps = {
-            "youtube", "netflix", "twitch", "discord",
-            "telegram", "whatsapp", "facebook", "twitter",
-            "instagram", "tiktok", "reddit"
-        }
+        if self._config:
+            productive_apps = self._config.settings.productive_apps
+            distracting_apps = self._config.settings.distracting_apps
+        else:
+            productive_apps = [
+                "code", "pycharm", "webstorm", "idea", "visual studio",
+                "sublime", "atom", "vim", "nvim", "emacs",
+                "word", "excel", "powerpoint", "outlook",
+                "terminal", "cmd", "powershell", "iterm",
+                "figma", "photoshop", "illustrator"
+            ]
+            distracting_apps = [
+                "youtube", "netflix", "twitch", "discord",
+                "telegram", "whatsapp", "facebook", "twitter",
+                "instagram", "tiktok", "reddit"
+            ]
 
         for app in productive_apps:
             if app in app_lower:
@@ -165,4 +305,3 @@ class ActivityMonitor(QObject):
                 return ActivityType.DISTRACTING
 
         return ActivityType.NEUTRAL
-    

@@ -41,7 +41,7 @@ class SettingsWidget(QWidget):
         content_layout.setContentsMargins(0, 0, 8, 0)
 
         # === Группа перерывов ===
-        breaks_group = QGroupBox("Перерывы")
+        breaks_group = QGroupBox("Напоминания о перерывах")
         breaks_layout = QFormLayout(breaks_group)
         breaks_layout.setSpacing(12)
         breaks_layout.setContentsMargins(15, 20, 15, 15)
@@ -50,25 +50,29 @@ class SettingsWidget(QWidget):
         self._short_break_interval.setRange(5, 120)
         self._short_break_interval.setSuffix(" мин")
         self._short_break_interval.setMinimumWidth(100)
-        breaks_layout.addRow("Интервал коротких перерывов:", self._short_break_interval)
+        self._short_break_interval.setToolTip("Как часто напоминать о коротком перерыве")
+        breaks_layout.addRow("Короткий перерыв каждые:", self._short_break_interval)
 
         self._short_break_duration = QSpinBox()
         self._short_break_duration.setRange(1, 30)
         self._short_break_duration.setSuffix(" мин")
         self._short_break_duration.setMinimumWidth(100)
-        breaks_layout.addRow("Длительность короткого перерыва:", self._short_break_duration)
+        self._short_break_duration.setToolTip("Рекомендуемая длительность короткого перерыва")
+        breaks_layout.addRow("Длительность короткого:", self._short_break_duration)
 
         self._long_break_interval = QSpinBox()
         self._long_break_interval.setRange(30, 240)
         self._long_break_interval.setSuffix(" мин")
         self._long_break_interval.setMinimumWidth(100)
-        breaks_layout.addRow("Интервал длинных перерывов:", self._long_break_interval)
+        self._long_break_interval.setToolTip("Как часто напоминать о длинном перерыве")
+        breaks_layout.addRow("Длинный перерыв каждые:", self._long_break_interval)
 
         self._long_break_duration = QSpinBox()
         self._long_break_duration.setRange(5, 60)
         self._long_break_duration.setSuffix(" мин")
         self._long_break_duration.setMinimumWidth(100)
-        breaks_layout.addRow("Длительность длинного перерыва:", self._long_break_duration)
+        self._long_break_duration.setToolTip("Рекомендуемая длительность длинного перерыва")
+        breaks_layout.addRow("Длительность длинного:", self._long_break_duration)
 
         content_layout.addWidget(breaks_group)
 
@@ -78,40 +82,70 @@ class SettingsWidget(QWidget):
         notifications_layout.setSpacing(10)
         notifications_layout.setContentsMargins(15, 20, 15, 15)
 
-        self._notifications_enabled = QCheckBox("Включить уведомления о перерывах")
+        self._notifications_enabled = QCheckBox("Показывать уведомления о перерывах")
+        self._notifications_enabled.setToolTip("Всплывающие уведомления когда пора отдохнуть")
         notifications_layout.addWidget(self._notifications_enabled)
 
-        self._sound_enabled = QCheckBox("Звуковые уведомления")
+        self._sound_enabled = QCheckBox("Звуковой сигнал при уведомлениях")
+        self._sound_enabled.setToolTip("Воспроизводить звук вместе с уведомлением")
         notifications_layout.addWidget(self._sound_enabled)
 
         content_layout.addWidget(notifications_group)
 
-        # === Группа поведения ===
-        behavior_group = QGroupBox("Поведение")
-        behavior_layout = QVBoxLayout(behavior_group)
-        behavior_layout.setSpacing(10)
-        behavior_layout.setContentsMargins(15, 20, 15, 15)
+        # === Группа отслеживания простоя ===
+        idle_group = QGroupBox("Определение простоя")
+        idle_layout = QVBoxLayout(idle_group)
+        idle_layout.setSpacing(10)
+        idle_layout.setContentsMargins(15, 20, 15, 15)
 
-        self._auto_start = QCheckBox("Автоматически начинать отслеживание")
-        behavior_layout.addWidget(self._auto_start)
+        self._idle_enabled = QCheckBox("Автоматически ставить на паузу при простое")
+        self._idle_enabled.setToolTip(
+            "Если вы не используете мышь и клавиатуру указанное время,\n"
+            "таймер автоматически встанет на паузу"
+        )
+        idle_layout.addWidget(self._idle_enabled)
 
-        self._minimize_to_tray = QCheckBox("Сворачивать в трей при закрытии")
-        behavior_layout.addWidget(self._minimize_to_tray)
-
-        self._track_apps = QCheckBox("Отслеживать использование приложений")
-        behavior_layout.addWidget(self._track_apps)
-
-        idle_layout = QHBoxLayout()
-        idle_layout.addWidget(QLabel("Таймаут простоя:"))
+        idle_time_layout = QHBoxLayout()
+        idle_time_layout.addWidget(QLabel("Считать простоем после:"))
         self._idle_timeout = QSpinBox()
         self._idle_timeout.setRange(60, 1800)
         self._idle_timeout.setSuffix(" сек")
         self._idle_timeout.setMinimumWidth(100)
-        idle_layout.addWidget(self._idle_timeout)
-        idle_layout.addStretch()
-        behavior_layout.addLayout(idle_layout)
+        self._idle_timeout.setToolTip(
+            "Время бездействия (нет движения мыши, нажатий клавиш),\n"
+            "после которого таймер встанет на паузу.\n"
+            "300 сек = 5 минут"
+        )
+        idle_time_layout.addWidget(self._idle_timeout)
+        idle_time_layout.addStretch()
+        idle_layout.addLayout(idle_time_layout)
 
-        content_layout.addWidget(behavior_group)
+        # Подсказка
+        idle_hint = QLabel("Например: 300 сек = 5 мин, 600 сек = 10 мин")
+        idle_hint.setStyleSheet("color: #6B7280; font-size: 11px;")
+        idle_layout.addWidget(idle_hint)
+
+        content_layout.addWidget(idle_group)
+
+        # === Группа запуска ===
+        startup_group = QGroupBox("При запуске")
+        startup_layout = QVBoxLayout(startup_group)
+        startup_layout.setSpacing(10)
+        startup_layout.setContentsMargins(15, 20, 15, 15)
+
+        self._auto_start = QCheckBox("Автоматически начинать отсчёт времени")
+        self._auto_start.setToolTip("Таймер запустится сразу при открытии программы")
+        startup_layout.addWidget(self._auto_start)
+
+        self._minimize_to_tray = QCheckBox("Сворачивать в трей вместо закрытия")
+        self._minimize_to_tray.setToolTip(
+            "При нажатии на X окно свернётся в системный трей,\n"
+            "а не закроется. Таймер продолжит работать."
+        )
+        startup_layout.addWidget(self._minimize_to_tray)
+
+        content_layout.addWidget(startup_group)
+
         content_layout.addStretch()
 
         scroll.setWidget(content)
@@ -149,10 +183,11 @@ class SettingsWidget(QWidget):
         self._notifications_enabled.setChecked(s.notifications_enabled)
         self._sound_enabled.setChecked(s.sound_enabled)
 
-        self._auto_start.setChecked(s.auto_start_tracking)
-        self._minimize_to_tray.setChecked(s.start_minimized)
-        self._track_apps.setChecked(s.track_applications)
+        self._idle_enabled.setChecked(s.idle_detection_enabled)
         self._idle_timeout.setValue(s.idle_timeout)
+
+        self._auto_start.setChecked(s.auto_start_tracking)
+        self._minimize_to_tray.setChecked(s.minimize_to_tray)
 
     def _save_settings(self) -> None:
         """Сохранить настройки."""
@@ -163,10 +198,10 @@ class SettingsWidget(QWidget):
             long_break_duration=self._long_break_duration.value(),
             notifications_enabled=self._notifications_enabled.isChecked(),
             sound_enabled=self._sound_enabled.isChecked(),
+            idle_detection_enabled=self._idle_enabled.isChecked(),
+            idle_timeout=self._idle_timeout.value(),
             auto_start_tracking=self._auto_start.isChecked(),
-            start_minimized=self._minimize_to_tray.isChecked(),
-            track_applications=self._track_apps.isChecked(),
-            idle_timeout=self._idle_timeout.value()
+            minimize_to_tray=self._minimize_to_tray.isChecked()
         )
 
         QMessageBox.information(self, "Готово", "Настройки сохранены!")
@@ -175,7 +210,7 @@ class SettingsWidget(QWidget):
         """Сбросить настройки."""
         reply = QMessageBox.question(
             self, "Подтверждение",
-            "Сбросить все настройки?",
+            "Сбросить все настройки на значения по умолчанию?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
 
@@ -189,7 +224,7 @@ class SettingsWidget(QWidget):
             self._long_break_duration.setValue(d.long_break_duration)
             self._notifications_enabled.setChecked(d.notifications_enabled)
             self._sound_enabled.setChecked(d.sound_enabled)
-            self._auto_start.setChecked(d.auto_start_tracking)
-            self._minimize_to_tray.setChecked(d.start_minimized)
-            self._track_apps.setChecked(d.track_applications)
+            self._idle_enabled.setChecked(d.idle_detection_enabled)
             self._idle_timeout.setValue(d.idle_timeout)
+            self._auto_start.setChecked(d.auto_start_tracking)
+            self._minimize_to_tray.setChecked(d.minimize_to_tray)

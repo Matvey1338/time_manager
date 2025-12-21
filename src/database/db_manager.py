@@ -22,7 +22,7 @@ class DatabaseManager:
         else:
             self._db_path = db_path
 
-        self._db_path.parent.mkdir(parents = True, exist_ok = True)
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
 
     @contextmanager
     def _get_connection(self):
@@ -74,17 +74,6 @@ class DatabaseManager:
                 )
             """)
 
-            # Таблица ежедневной статистики
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS daily_stats (
-                    date TEXT PRIMARY KEY,
-                    total_time INTEGER DEFAULT 0,
-                    active_time INTEGER DEFAULT 0,
-                    breaks_count INTEGER DEFAULT 0,
-                    sessions_count INTEGER DEFAULT 0
-                )
-            """)
-
             # Индексы
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_sessions_date 
@@ -93,6 +82,10 @@ class DatabaseManager:
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_activities_session 
                 ON activities(session_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_activities_type 
+                ON activities(activity_type)
             """)
 
             self._logger.info("База данных инициализирована")
@@ -163,15 +156,15 @@ class DatabaseManager:
     def _row_to_session(self, row: sqlite3.Row) -> Session:
         """Преобразовать строку БД в объект Session."""
         return Session(
-            id = row["id"],
-            start_time = datetime.fromisoformat(row["start_time"]),
-            end_time = datetime.fromisoformat(row["end_time"]) if row["end_time"] else None,
-            status = SessionStatus(row["status"]),
-            total_duration = row["total_duration"],
-            active_duration = row["active_duration"],
-            idle_duration = row["idle_duration"],
-            breaks_count = row["breaks_count"],
-            notes = row["notes"] or ""
+            id=row["id"],
+            start_time=datetime.fromisoformat(row["start_time"]),
+            end_time=datetime.fromisoformat(row["end_time"]) if row["end_time"] else None,
+            status=SessionStatus(row["status"]),
+            total_duration=row["total_duration"],
+            active_duration=row["active_duration"],
+            idle_duration=row["idle_duration"],
+            breaks_count=row["breaks_count"],
+            notes=row["notes"] or ""
         )
 
     # === Методы для работы с активностями ===
@@ -224,17 +217,107 @@ class DatabaseManager:
             return {row["application_name"]: row["total_duration"]
                     for row in cursor.fetchall()}
 
+    def get_productivity_stats(self, target_date: date) -> Dict[str, Any]:
+        """Получить статистику продуктивности за день."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            date_str = target_date.isoformat()
+
+            # Общее время по типам активности
+            cursor.execute("""
+                SELECT 
+                    activity_type,
+                    SUM(duration) as total_duration,
+                    COUNT(DISTINCT application_name) as app_count
+                FROM activities
+                WHERE date(start_time) = ?
+                GROUP BY activity_type
+            """, (date_str,))
+
+            result = {
+                "productive": {"duration": 0, "apps": 0},
+                "distracting": {"duration": 0, "apps": 0},
+                "neutral": {"duration": 0, "apps": 0},
+                "unknown": {"duration": 0, "apps": 0}
+            }
+
+            for row in cursor.fetchall():
+                activity_type = row["activity_type"]
+                if activity_type in result:
+                    result[activity_type] = {
+                        "duration": row["total_duration"] or 0,
+                        "apps": row["app_count"] or 0
+                    }
+
+            # Топ продуктивных приложений
+            cursor.execute("""
+                SELECT application_name, SUM(duration) as total_duration
+                FROM activities
+                WHERE date(start_time) = ? AND activity_type = 'productive'
+                GROUP BY application_name
+                ORDER BY total_duration DESC
+                LIMIT 5
+            """, (date_str,))
+
+            result["top_productive"] = [
+                {"name": row["application_name"], "duration": row["total_duration"]}
+                for row in cursor.fetchall()
+            ]
+
+            # Топ отвлекающих приложений
+            cursor.execute("""
+                SELECT application_name, SUM(duration) as total_duration
+                FROM activities
+                WHERE date(start_time) = ? AND activity_type = 'distracting'
+                GROUP BY application_name
+                ORDER BY total_duration DESC
+                LIMIT 5
+            """, (date_str,))
+
+            result["top_distracting"] = [
+                {"name": row["application_name"], "duration": row["total_duration"]}
+                for row in cursor.fetchall()
+            ]
+
+            return result
+
+    def get_app_with_type(self, target_date: date) -> List[Dict[str, Any]]:
+        """Получить список приложений с их типами за день."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            date_str = target_date.isoformat()
+
+            cursor.execute("""
+                SELECT 
+                    application_name,
+                    activity_type,
+                    SUM(duration) as total_duration
+                FROM activities
+                WHERE date(start_time) = ?
+                GROUP BY application_name, activity_type
+                ORDER BY total_duration DESC
+            """, (date_str,))
+
+            return [
+                {
+                    "name": row["application_name"],
+                    "type": row["activity_type"],
+                    "duration": row["total_duration"]
+                }
+                for row in cursor.fetchall()
+            ]
+
     def _row_to_activity(self, row: sqlite3.Row) -> Activity:
         """Преобразовать строку БД в объект Activity."""
         return Activity(
-            id = row["id"],
-            session_id = row["session_id"],
-            application_name = row["application_name"],
-            window_title = row["window_title"] or "",
-            start_time = datetime.fromisoformat(row["start_time"]),
-            end_time = datetime.fromisoformat(row["end_time"]) if row["end_time"] else None,
-            duration = row["duration"],
-            activity_type = ActivityType(row["activity_type"])
+            id=row["id"],
+            session_id=row["session_id"],
+            application_name=row["application_name"],
+            window_title=row["window_title"] or "",
+            start_time=datetime.fromisoformat(row["start_time"]),
+            end_time=datetime.fromisoformat(row["end_time"]) if row["end_time"] else None,
+            duration=row["duration"],
+            activity_type=ActivityType(row["activity_type"])
         )
 
     # === Методы для статистики ===
@@ -281,4 +364,3 @@ class DatabaseManager:
             """, (start_date.isoformat(), end_date.isoformat()))
 
             return [dict(row) for row in cursor.fetchall()]
-        
